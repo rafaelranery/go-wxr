@@ -40,8 +40,8 @@ type item struct {
 }
 
 type wpCategory struct {
-	Domain string `xml:"domain,attr"`
-	Value  string `xml:",chardata"`
+	Domain   string `xml:"domain,attr"`
+	Value    string `xml:",chardata"`
 	NiceName string `xml:"nicename,attr"`
 }
 

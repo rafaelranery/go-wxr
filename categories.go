@@ -35,4 +35,3 @@ func (e *CategoryExtractor) ExtractTags(item *item) []string {
 	}
 	return tags
 }
-

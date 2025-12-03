@@ -10,15 +10,15 @@ import (
 
 // Parser provides configurable parsing of WordPress WXR export files.
 type Parser struct {
-	logger            Logger
-	filter            Filter
-	authorExt         *AuthorExtractor
-	excerptExt        *ExcerptExtractor
-	dateExt           *DateExtractor
-	modifiedDateExt   *ModifiedDateExtractor
-	categoryExt       *CategoryExtractor
-	metaExt           *MetaExtractor
-	featuredImageExt  *FeaturedImageExtractor
+	logger           Logger
+	filter           Filter
+	authorExt        *AuthorExtractor
+	excerptExt       *ExcerptExtractor
+	dateExt          *DateExtractor
+	modifiedDateExt  *ModifiedDateExtractor
+	categoryExt      *CategoryExtractor
+	metaExt          *MetaExtractor
+	featuredImageExt *FeaturedImageExtractor
 }
 
 // NewParser creates a new Parser with the default no-op logger.
