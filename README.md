@@ -21,7 +21,13 @@ A Go library for parsing WordPress WXR (WordPress eXtended RSS) export files.
 ## Installation
 
 ```bash
-go get github.com/rafaelranery/go-wxr
+go get github.com/rafaelranery/go-wxr@v0.1.0
+```
+
+Or to get the latest version:
+
+```bash
+go get github.com/rafaelranery/go-wxr@latest
 ```
 
 ## Quick Start
