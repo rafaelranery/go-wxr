@@ -2,6 +2,8 @@
 
 A Go library for parsing WordPress WXR (WordPress eXtended RSS) export files.
 
+[![CI](https://github.com/rafaelranery/go-wxr/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelranery/go-wxr/actions/workflows/ci.yml)
+
 ## Overview
 
 `go-wxr` provides a simple and efficient way to parse WordPress WXR XML export files into Go structs. It handles the complexities of WordPress export formats, including attachment resolution, date normalization, and metadata extraction.
