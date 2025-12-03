@@ -1,6 +1,7 @@
 package wxr
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -9,33 +10,42 @@ import (
 
 // Parser provides configurable parsing of WordPress WXR export files.
 type Parser struct {
-	logger           Logger
-	filter           Filter
-	authorExt        *AuthorExtractor
-	excerptExt       *ExcerptExtractor
-	dateExt          *DateExtractor
-	featuredImageExt *FeaturedImageExtractor
+	logger            Logger
+	filter            Filter
+	authorExt         *AuthorExtractor
+	excerptExt        *ExcerptExtractor
+	dateExt           *DateExtractor
+	modifiedDateExt   *ModifiedDateExtractor
+	categoryExt       *CategoryExtractor
+	metaExt           *MetaExtractor
+	featuredImageExt  *FeaturedImageExtractor
 }
 
 // NewParser creates a new Parser with the default no-op logger.
 func NewParser() *Parser {
 	return &Parser{
-		logger:     &noOpLogger{},
-		filter:     NewDefaultFilter(),
-		authorExt:  &AuthorExtractor{},
-		excerptExt: &ExcerptExtractor{},
-		dateExt:    &DateExtractor{},
+		logger:          &noOpLogger{},
+		filter:          NewDefaultFilter(),
+		authorExt:       &AuthorExtractor{},
+		excerptExt:      &ExcerptExtractor{},
+		dateExt:         &DateExtractor{},
+		modifiedDateExt: &ModifiedDateExtractor{},
+		categoryExt:     &CategoryExtractor{},
+		metaExt:         &MetaExtractor{},
 	}
 }
 
 // NewParserWithLogger creates a new Parser with a custom logger.
 func NewParserWithLogger(logger Logger) *Parser {
 	return &Parser{
-		logger:     logger,
-		filter:     NewDefaultFilter(),
-		authorExt:  &AuthorExtractor{},
-		excerptExt: &ExcerptExtractor{},
-		dateExt:    &DateExtractor{},
+		logger:          logger,
+		filter:          NewDefaultFilter(),
+		authorExt:       &AuthorExtractor{},
+		excerptExt:      &ExcerptExtractor{},
+		dateExt:         &DateExtractor{},
+		modifiedDateExt: &ModifiedDateExtractor{},
+		categoryExt:     &CategoryExtractor{},
+		metaExt:         &MetaExtractor{},
 	}
 }
 
@@ -46,11 +56,14 @@ func NewParserWithStdLogger(stdLogger *log.Logger) *Parser {
 		return NewParser()
 	}
 	return &Parser{
-		logger:     &stdLoggerAdapter{logger: stdLogger},
-		filter:     NewDefaultFilter(),
-		authorExt:  &AuthorExtractor{},
-		excerptExt: &ExcerptExtractor{},
-		dateExt:    &DateExtractor{},
+		logger:          &stdLoggerAdapter{logger: stdLogger},
+		filter:          NewDefaultFilter(),
+		authorExt:       &AuthorExtractor{},
+		excerptExt:      &ExcerptExtractor{},
+		dateExt:         &DateExtractor{},
+		modifiedDateExt: &ModifiedDateExtractor{},
+		categoryExt:     &CategoryExtractor{},
+		metaExt:         &MetaExtractor{},
 	}
 }
 
@@ -151,11 +164,33 @@ func (p *Parser) buildAuthorMap(ch channel) map[string]string {
 
 // transformItem converts an item to a Post using the configured extractors.
 func (p *Parser) transformItem(item *item, attachmentIndex *AttachmentIndex) Post {
-	// Initialize featured image extractor with attachment index
+	// Initialize extractors if needed
+	if p.categoryExt == nil {
+		p.categoryExt = &CategoryExtractor{}
+	}
+	if p.modifiedDateExt == nil {
+		p.modifiedDateExt = &ModifiedDateExtractor{}
+	}
+	if p.metaExt == nil {
+		p.metaExt = &MetaExtractor{}
+	}
 	if p.featuredImageExt == nil {
 		p.featuredImageExt = &FeaturedImageExtractor{attachmentIndex: attachmentIndex}
 	} else {
 		p.featuredImageExt.attachmentIndex = attachmentIndex
+	}
+
+	categories := p.categoryExt.ExtractCategories(item)
+	if categories == nil {
+		categories = []string{}
+	}
+	tags := p.categoryExt.ExtractTags(item)
+	if tags == nil {
+		tags = []string{}
+	}
+	meta := p.metaExt.Extract(item)
+	if meta == nil {
+		meta = make(map[string]string)
 	}
 
 	return Post{
@@ -167,7 +202,12 @@ func (p *Parser) transformItem(item *item, attachmentIndex *AttachmentIndex) Pos
 		Link:            item.Link, // Canonical permalink from XML
 		Author:          p.authorExt.Extract(item),
 		Date:            p.dateExt.Extract(item),
-		Categories:      []string{}, // Categories are in separate category tags, not parsed here
+		ModifiedDate:    p.modifiedDateExt.Extract(item),
+		Categories:      categories,
+		Tags:            tags,
+		GUID:            item.GUID,
+		ParentID:        item.PostParent,
+		Meta:            meta,
 		FeaturedImage:   p.featuredImageExt.Extract(item),
 	}
 }
@@ -260,4 +300,109 @@ func (p *Parser) Parse(r io.Reader) ([]Post, error) {
 func Parse(r io.Reader) ([]Post, error) {
 	parser := NewParser()
 	return parser.Parse(r)
+}
+
+// ParseWithContext parses a WXR file with context support for cancellation.
+// This is a convenience function that uses the default parser.
+func ParseWithContext(ctx context.Context, r io.Reader) ([]Post, error) {
+	parser := NewParser()
+	return parser.ParseWithContext(ctx, r)
+}
+
+// ParseWithContext parses a WordPress WXR XML export file with context support.
+// It allows cancellation via the context. If the context is cancelled, parsing stops
+// and returns the posts parsed so far along with a context error.
+func (p *Parser) ParseWithContext(ctx context.Context, r io.Reader) ([]Post, error) {
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	p.logger.Printf("Starting WXR parsing")
+
+	wxrDoc, err := p.decodeXML(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check context after decoding
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	p.logger.Printf("Parsed WXR document, found %d items", len(wxrDoc.Channel.Items))
+
+	posts := make([]Post, 0)
+	skippedCount := 0
+	skippedByType := make(map[string]int)
+	skippedByStatus := make(map[string]int)
+
+	// Build attachment lookups (ID -> URL) and parent->attachments map
+	attachmentIndex := buildAttachmentIndex(wxrDoc.Channel)
+
+	// Build author lookup map (currently unused but kept for potential future use)
+	_ = p.buildAuthorMap(wxrDoc.Channel)
+
+	for i := range wxrDoc.Channel.Items {
+		// Check context periodically during parsing
+		select {
+		case <-ctx.Done():
+			p.logger.Printf("Parsing cancelled, returning %d posts parsed so far", len(posts))
+			return posts, ctx.Err()
+		default:
+		}
+
+		item := &wxrDoc.Channel.Items[i]
+
+		// Filter: only include posts matching filter criteria
+		// Track skipped items separately by type and status to match original behavior
+		if item.PostType != "post" {
+			skippedByType[item.PostType]++
+			skippedCount++
+			continue
+		}
+
+		if item.Status != "publish" {
+			skippedByStatus[item.Status]++
+			skippedCount++
+			continue
+		}
+
+		// Validate essential fields
+		if item.PostID == 0 {
+			p.logger.Printf("Skipping item with missing post_id")
+			skippedCount++
+			continue
+		}
+
+		if item.Title == "" && item.ContentEncoded == "" && item.ExcerptEncoded == "" {
+			p.logger.Printf("Skipping post %d: missing title, content, and excerpt", item.PostID)
+			skippedCount++
+			continue
+		}
+
+		// Transform item to Post
+		post := p.transformItem(item, attachmentIndex)
+
+		// Log warning if both Link and Slug are missing (malformed input)
+		if post.Link == "" && post.Slug == "" {
+			p.logger.Printf("Warning: Post %d has neither Link nor Slug - URL construction may fail", post.ID)
+		}
+
+		posts = append(posts, post)
+	}
+
+	p.logger.Printf("WXR parsing complete: %d posts extracted, %d items skipped", len(posts), skippedCount)
+	if len(skippedByType) > 0 {
+		p.logger.Printf("Skipped by type: %+v", skippedByType)
+	}
+	if len(skippedByStatus) > 0 {
+		p.logger.Printf("Skipped by status: %+v", skippedByStatus)
+	}
+
+	return posts, nil
 }

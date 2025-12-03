@@ -1,6 +1,7 @@
 package wxr
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -341,4 +342,308 @@ type testLogger struct {
 
 func (t *testLogger) Printf(format string, v ...any) {
 	t.logs = append(t.logs, format)
+}
+
+func TestParse_CategoriesAndTags(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Post With Categories]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+		<category domain="category" nicename="tech"><![CDATA[Technology]]></category>
+		<category domain="category" nicename="news"><![CDATA[News]]></category>
+		<category domain="post_tag" nicename="golang"><![CDATA[Go]]></category>
+		<category domain="post_tag" nicename="programming"><![CDATA[Programming]]></category>
+	</item>
+</channel>
+</rss>`
+
+	reader := strings.NewReader(xml)
+	posts, err := Parse(reader)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+
+	post := posts[0]
+	if len(post.Categories) != 2 {
+		t.Errorf("expected 2 categories, got %d: %v", len(post.Categories), post.Categories)
+	}
+	if !contains(post.Categories, "Technology") || !contains(post.Categories, "News") {
+		t.Errorf("expected categories to contain 'Technology' and 'News', got %v", post.Categories)
+	}
+
+	if len(post.Tags) != 2 {
+		t.Errorf("expected 2 tags, got %d: %v", len(post.Tags), post.Tags)
+	}
+	if !contains(post.Tags, "Go") || !contains(post.Tags, "Programming") {
+		t.Errorf("expected tags to contain 'Go' and 'Programming', got %v", post.Tags)
+	}
+}
+
+func TestParse_ModifiedDate(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Post With Modified Date]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_date><![CDATA[2025-01-01 10:00:00]]></wp:post_date>
+		<wp:post_date_gmt><![CDATA[2025-01-01 13:00:00]]></wp:post_date_gmt>
+		<wp:post_modified><![CDATA[2025-01-15 14:30:00]]></wp:post_modified>
+		<wp:post_modified_gmt><![CDATA[2025-01-15 17:30:00]]></wp:post_modified_gmt>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+</channel>
+</rss>`
+
+	reader := strings.NewReader(xml)
+	posts, err := Parse(reader)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+
+	post := posts[0]
+	if post.ModifiedDate == "" {
+		t.Error("expected ModifiedDate to be set")
+	}
+	// Modified date should be normalized to RFC3339
+	if !strings.Contains(post.ModifiedDate, "T") {
+		t.Errorf("expected RFC3339 format for ModifiedDate, got %q", post.ModifiedDate)
+	}
+}
+
+func TestParse_MetaFields(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Post With Meta]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+		<wp:postmeta>
+			<wp:meta_key><![CDATA[custom_field]]></wp:meta_key>
+			<wp:meta_value><![CDATA[custom_value]]></wp:meta_value>
+		</wp:postmeta>
+		<wp:postmeta>
+			<wp:meta_key><![CDATA[another_field]]></wp:meta_key>
+			<wp:meta_value><![CDATA[another_value]]></wp:meta_value>
+		</wp:postmeta>
+	</item>
+</channel>
+</rss>`
+
+	reader := strings.NewReader(xml)
+	posts, err := Parse(reader)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+
+	post := posts[0]
+	if post.Meta == nil {
+		t.Fatal("expected Meta map to be initialized")
+	}
+	if len(post.Meta) != 2 {
+		t.Errorf("expected 2 meta fields, got %d", len(post.Meta))
+	}
+	if post.Meta["custom_field"] != "custom_value" {
+		t.Errorf("expected meta['custom_field'] = 'custom_value', got %q", post.Meta["custom_field"])
+	}
+	if post.Meta["another_field"] != "another_value" {
+		t.Errorf("expected meta['another_field'] = 'another_value', got %q", post.Meta["another_field"])
+	}
+}
+
+func TestParse_GUIDAndParentID(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Child Post]]></title>
+		<link>https://example.com/child-post</link>
+		<guid isPermaLink="false">https://example.com/?p=2</guid>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>2</wp:post_id>
+		<wp:post_parent>1</wp:post_parent>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+</channel>
+</rss>`
+
+	reader := strings.NewReader(xml)
+	posts, err := Parse(reader)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+
+	post := posts[0]
+	if post.GUID != "https://example.com/?p=2" {
+		t.Errorf("expected GUID 'https://example.com/?p=2', got %q", post.GUID)
+	}
+	if post.ParentID != 1 {
+		t.Errorf("expected ParentID 1, got %d", post.ParentID)
+	}
+}
+
+func TestParse_BackwardCompatibility(t *testing.T) {
+	// Test that existing fields still work as before
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Test Post]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+</channel>
+</rss>`
+
+	reader := strings.NewReader(xml)
+	posts, err := Parse(reader)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+
+	post := posts[0]
+	// Verify existing fields still work
+	if post.ID != 1 {
+		t.Errorf("expected ID 1, got %d", post.ID)
+	}
+	if post.TitleRendered != "Test Post" {
+		t.Errorf("expected title 'Test Post', got %q", post.TitleRendered)
+	}
+	// Verify new fields have sensible defaults
+	if post.Categories == nil {
+		t.Error("expected Categories to be initialized (empty slice)")
+	}
+	if post.Tags == nil {
+		t.Error("expected Tags to be initialized (empty slice)")
+	}
+	if post.Meta == nil {
+		t.Error("expected Meta to be initialized (empty map)")
+	}
+}
+
+func TestParseWithContext(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Post 1]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+	<item>
+		<title><![CDATA[Post 2]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>2</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+</channel>
+</rss>`
+
+	ctx := context.Background()
+	reader := strings.NewReader(xml)
+	posts, err := ParseWithContext(ctx, reader)
+	if err != nil {
+		t.Fatalf("ParseWithContext() error = %v", err)
+	}
+
+	if len(posts) != 2 {
+		t.Errorf("expected 2 posts, got %d", len(posts))
+	}
+}
+
+func TestParseWithContext_Cancellation(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+	<title>Test Site</title>
+	<item>
+		<title><![CDATA[Post 1]]></title>
+		<content:encoded><![CDATA[Content]]></content:encoded>
+		<wp:post_id>1</wp:post_id>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:status><![CDATA[publish]]></wp:status>
+	</item>
+</channel>
+</rss>`
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	reader := strings.NewReader(xml)
+	posts, err := ParseWithContext(ctx, reader)
+	if err == nil {
+		t.Error("expected error when context is cancelled")
+	}
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled error, got %v", err)
+	}
+	// Should return empty posts when cancelled before parsing
+	if len(posts) != 0 {
+		t.Errorf("expected 0 posts when cancelled, got %d", len(posts))
+	}
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

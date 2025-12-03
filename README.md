@@ -12,16 +12,19 @@ A Go library for parsing WordPress WXR (WordPress eXtended RSS) export files.
 
 - Parse WordPress WXR export files
 - Filter for published posts only (configurable)
+- Parse categories and tags from WXR format
 - Resolve attachment URLs for featured images
-- Normalize dates to RFC3339 format
-- Extract metadata (author, excerpt, featured images)
+- Normalize dates to RFC3339 format (publication and modification dates)
+- Extract metadata (author, excerpt, featured images, custom meta fields)
+- Access all post meta fields via map
+- Context support for cancellation
 - Configurable logging (no-op by default)
 - Comprehensive error handling
 
 ## Installation
 
 ```bash
-go get github.com/rafaelranery/go-wxr@v0.1.0
+go get github.com/rafaelranery/go-wxr@v0.1.1
 ```
 
 Or to get the latest version:
@@ -126,16 +129,21 @@ Represents a WordPress post parsed from a WXR export file.
 
 ```go
 type Post struct {
-    ID              int      // WordPress post ID
-    TitleRendered   string   // Post title (may contain HTML)
-    ContentRendered string   // Full post content (HTML)
-    Slug            string   // URL-friendly post slug
-    Link            string   // Canonical permalink URL
-    Excerpt         string   // Post excerpt or summary
-    Author          string   // Post author name
-    Categories      []string // List of category names or IDs
-    Date            string   // Publication date in RFC3339 format
-    FeaturedImage   string   // URL of the featured image
+    ID              int               // WordPress post ID
+    TitleRendered   string             // Post title (may contain HTML)
+    ContentRendered string             // Full post content (HTML)
+    Slug            string             // URL-friendly post slug
+    Link            string             // Canonical permalink URL
+    Excerpt         string             // Post excerpt or summary
+    Author          string             // Post author name
+    Categories      []string           // List of category names
+    Tags            []string           // List of tag names
+    Date            string             // Publication date in RFC3339 format
+    ModifiedDate    string             // Last modification date in RFC3339 format
+    GUID            string             // Globally unique identifier
+    ParentID        int                // Parent post ID (for hierarchical types)
+    Meta            map[string]string  // All post meta fields as key-value pairs
+    FeaturedImage   string             // URL of the featured image
 }
 ```
 
@@ -199,7 +207,10 @@ Parses a WordPress WXR XML export file and converts it into Post instances.
 
 ```go
 func (p *Parser) Parse(r io.Reader) ([]Post, error)
+func (p *Parser) ParseWithContext(ctx context.Context, r io.Reader) ([]Post, error)
 ```
+
+The `ParseWithContext` method allows cancellation via context and is recommended for long-running parsing operations.
 
 The parser:
 - Filters for published posts only (`post_type="post"` and `status="publish"`)
@@ -246,6 +257,17 @@ Author names are resolved in the following order:
 ### Excerpt Fallback
 
 If the excerpt field is empty, the parser attempts to use the `subtitulo` meta field as a fallback.
+
+### Categories and Tags
+
+Categories and tags are parsed from `<category>` elements in the WXR format:
+- Categories have `domain="category"` or no domain attribute (defaults to category)
+- Tags have `domain="post_tag"`
+- Both are extracted as lists of category/tag names
+
+### Post Meta
+
+All post meta fields are extracted into the `Meta` map, allowing access to custom WordPress fields. Common meta fields like `_thumbnail_id` are still accessible via the `Meta` map in addition to being used for featured image resolution.
 
 ## Error Handling
 

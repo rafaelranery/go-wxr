@@ -24,12 +24,27 @@ type Post struct {
 	// Author is the post author name.
 	Author string
 
-	// Categories is a list of category names or IDs associated with the post.
+	// Categories is a list of category names associated with the post.
 	Categories []string
+
+	// Tags is a list of tag names associated with the post.
+	Tags []string
 
 	// Date is the post publication date in RFC3339 format.
 	Date string
 
+	// ModifiedDate is the post last modification date in RFC3339 format.
+	ModifiedDate string
+
 	// FeaturedImage is the URL of the featured image for the post.
 	FeaturedImage string
+
+	// GUID is the globally unique identifier for the post.
+	GUID string
+
+	// ParentID is the ID of the parent post (for hierarchical post types like pages).
+	ParentID int
+
+	// Meta contains all post meta fields as key-value pairs.
+	Meta map[string]string
 }

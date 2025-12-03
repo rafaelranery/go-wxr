@@ -87,3 +87,39 @@ func (e *DateExtractor) Extract(item *item) string {
 
 	return dateStr
 }
+
+// ModifiedDateExtractor handles modification date extraction and normalization from WXR items.
+type ModifiedDateExtractor struct{}
+
+// Extract extracts and normalizes the modification date from an item.
+// It prefers wp:post_modified_gmt, then wp:post_modified.
+// The date is normalized to RFC3339 format.
+func (e *ModifiedDateExtractor) Extract(item *item) string {
+	dateStr := item.PostModifiedGMT
+	if dateStr == "" {
+		dateStr = item.PostModified
+	}
+
+	// Normalize date format to RFC3339 if possible
+	if dateStr != "" {
+		dateStr = normalizeWXRDate(dateStr)
+	}
+
+	return dateStr
+}
+
+// MetaExtractor handles extraction of all post meta fields.
+type MetaExtractor struct{}
+
+// Extract extracts all meta fields from an item as a map.
+func (e *MetaExtractor) Extract(item *item) map[string]string {
+	meta := make(map[string]string)
+	for _, m := range item.PostMeta {
+		key := strings.TrimSpace(m.Key)
+		value := cleanMetaValue(m.Value)
+		if key != "" && value != "" {
+			meta[key] = value
+		}
+	}
+	return meta
+}
