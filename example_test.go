@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/rafaelrapnery/go-wxr"
+	"github.com/rafaelranery/go-wxr"
 )
 
 func ExampleParse() {

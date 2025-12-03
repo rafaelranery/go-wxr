@@ -21,7 +21,7 @@ A Go library for parsing WordPress WXR (WordPress eXtended RSS) export files.
 ## Installation
 
 ```bash
-go get github.com/rafaelrapnery/go-wxr
+go get github.com/rafaelranery/go-wxr
 ```
 
 ## Quick Start
@@ -35,7 +35,7 @@ import (
     "fmt"
     "os"
     
-    "github.com/rafaelrapnery/go-wxr"
+    "github.com/rafaelranery/go-wxr"
 )
 
 func main() {
@@ -65,7 +65,7 @@ import (
     "log"
     "os"
     
-    "github.com/rafaelrapnery/go-wxr"
+    "github.com/rafaelranery/go-wxr"
 )
 
 func main() {
@@ -94,7 +94,7 @@ func main() {
 package main
 
 import (
-    "github.com/rafaelrapnery/go-wxr"
+    "github.com/rafaelranery/go-wxr"
 )
 
 type myLogger struct{}
